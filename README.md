@@ -16,7 +16,12 @@ scalping intraday aggressivo su **XAU/USD** durante le sessioni ad alta volatili
 | File | Descrizione |
 |------|-------------|
 | `XAU_Intraday_Scalper.mq4` | Expert Advisor principale |
+| `XAU_Intraday_Scalper.set` | Preset di partenza per Strategy Tester / ottimizzazione |
 | `README.md` | Questa documentazione |
+
+> Il file `.set` si carica dal tab **Inputs** (Strategy Tester o proprietà EA) con
+> **Load**. I parametri marcati per l'ottimizzazione (`,F=1`) hanno già range e
+> step impostati. Ricorda di adattare `PipSize` e `BrokerGMTOffset` al tuo broker.
 
 ## Installazione
 
