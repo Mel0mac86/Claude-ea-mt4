@@ -16,7 +16,12 @@ scalping intraday aggressivo su **XAU/USD** durante le sessioni ad alta volatili
 | File | Descrizione |
 |------|-------------|
 | `XAU_Intraday_Scalper.mq4` | Expert Advisor principale |
+| `XAU_Intraday_Scalper.set` | Preset di partenza per Strategy Tester / ottimizzazione |
 | `README.md` | Questa documentazione |
+
+> Il file `.set` si carica dal tab **Inputs** (Strategy Tester o proprietà EA) con
+> **Load**. I parametri marcati per l'ottimizzazione (`,F=1`) hanno già range e
+> step impostati. Ricorda di adattare `PipSize` e `BrokerGMTOffset` al tuo broker.
 
 ## Installazione
 
@@ -64,7 +69,27 @@ direzionale (RSI). Va applicato a un grafico M15.
 
 ### Disciplina
 - **Pausa revenge trading** di 30 min dopo 2 loss consecutivi.
-- Dashboard a schermo con stato, P&L giornaliero/overall, spread, n. trade.
+- Dashboard a schermo con stato, trend, P&L giornaliero/overall, spread, SL dinamico, n. trade.
+
+### Edge / robustezza (v1.10)
+Filtri aggiunti per migliorare la qualità dei segnali e la tenuta su mercati reali
+(tutti attivabili/disattivabili da input):
+- **SL/TP dinamico su ATR** (`UseAtrStops`): stop e target si adattano alla
+  volatilità reale invece di usare pips fissi, con clamp min/max per evitare
+  stop assurdi. Il TP resta a `SL × RiskRewardRatio`.
+- **Filtro trend H4** (`UseTrendFilter`): i breakout LONG si prendono solo con
+  prezzo sopra l'EMA H4 in pendenza positiva (e viceversa per gli SHORT). Riduce
+  i falsi breakout contro-trend.
+- **Filtro volatilità** (`UseVolatilityFilter`): niente trading quando l'ATR del
+  timeframe scelto è sotto la soglia (regime di *chop* a bassa volatilità).
+- **Partial = frazione dello SL reale** (`PartialAtSlFraction`): la chiusura
+  parziale scatta a una frazione dello stop (default 0,8 → +8 pips con SL 10),
+  coerente anche con lo SL dinamico ATR.
+- **Breakeven automatico** (`UseBreakeven`): dopo il parziale lo stop va a pareggio
+  (+ buffer), poi subentra il trailing. Trasforma rapidamente il trade in
+  *risk-free*.
+- **Guardia spread/SL** (`MaxSpreadToSlRatio`): rifiuta l'entry se lo spread erode
+  una frazione eccessiva dello stop (anti-costo su scalping).
 
 ---
 
@@ -106,6 +131,16 @@ usano questo valore. **Verificare la convenzione del proprio broker** e adattare
 | Filtri | `MaxSpreadPips` | 25 | Rifiuta entry oltre |
 | Filtri | `MaxTradesPerDay` | 10 | 8–12 |
 | Filtri | `NewsTimesGMT` | "" | es. `"12:30,18:00"` |
+| Edge | `UseAtrStops` | true | SL/TP su ATR |
+| Edge | `AtrSlMultiplier` | 1.2 | SL = ATR × mult |
+| Edge | `AtrSlMinPips / MaxPips` | 6 / 18 | Clamp SL |
+| Edge | `PartialAtSlFraction` | 0.8 | Parziale a frazione dello SL |
+| Edge | `UseBreakeven` | true | BE dopo parziale |
+| Edge | `UseTrendFilter` | true | EMA H4 |
+| Edge | `TrendEmaPeriod` | 50 | Periodo EMA trend |
+| Edge | `UseVolatilityFilter` | true | Floor ATR |
+| Edge | `MinVolRangePips` | 150 | Dipende da `PipSize` |
+| Edge | `MaxSpreadToSlRatio` | 0.30 | Spread max vs SL |
 
 > **Nota fuso orario**: gli orari di sessione sono in **GMT**. L'EA usa
 > `TimeGMT()`. Se il calcolo GMT del terminale non è affidabile, impostare
@@ -124,3 +159,29 @@ usano questo valore. **Verificare la convenzione del proprio broker** e adattare
   spread reale incide molto sullo scalping.
 - I limiti di daily/overall loss sono calcolati sull'**equity** (floating incluso)
   rispetto, rispettivamente, all'equity di inizio giornata e al saldo di riferimento.
+
+---
+
+## ⚠️ Rendere l'EA profittevole: cosa serve davvero
+
+**Nessuna modifica al codice può *garantire* profittabilità.** I filtri della v1.10
+(ATR, trend, volatilità, breakeven) migliorano la *robustezza* — riducono falsi
+breakout e operatività nel chop — ma l'unico modo per stabilire se la strategia
+guadagna sui tuoi dati e sul tuo broker è **testarla**. Procedura consigliata:
+
+1. **Backtest** nel MT4 Strategy Tester su XAU/USD M15, modalità *"Every tick"*,
+   con dati storici di qualità e **spread realistico** (lo spread incide moltissimo
+   sullo scalping).
+2. **Imposta correttamente** `PipSize` e `BrokerGMTOffset` per il tuo broker
+   *prima* di qualsiasi test, altrimenti SL/TP e sessioni saranno sbagliati.
+3. **Ottimizza** i parametri chiave su un periodo *in-sample*:
+   `AtrSlMultiplier`, `RiskRewardRatio`, `TrendEmaPeriod`, `RangeLookbackBars`,
+   `MinVolRangePips`, soglie RSI.
+4. **Valida out-of-sample** (walk-forward) su un periodo diverso da quello di
+   ottimizzazione per evitare l'*overfitting*: parametri che brillano solo nel
+   passato non reggono in reale.
+5. **Forward test su demo** per alcune settimane prima del conto reale/funded.
+
+Metriche target coerenti con la specifica: **win rate ≥ 55%** con R:R 1:1.5,
+**profit factor ≥ 1.3**. Se il backtest non li raggiunge, agisci sui parametri
+sopra prima di operare con denaro reale.

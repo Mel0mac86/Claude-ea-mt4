@@ -10,7 +10,7 @@
 //+------------------------------------------------------------------+
 #property copyright "Neuromelo"
 #property link      ""
-#property version   "1.00"
+#property version   "1.10"
 #property strict
 
 //==================================================================//
@@ -65,6 +65,32 @@ input double  PartialClosePips       = 8.0;      // +pips per chiusura parziale 
 input double  PartialClosePercent    = 50.0;     // % della posizione da chiudere
 input bool    UseTrailingStop       = true;      // Trailing stop dopo parziale
 input double  TrailingStopPips       = 5.0;      // Distanza trailing stop
+
+//==================================================================//
+//  INPUT - EDGE / ROBUSTEZZA                                        //
+//==================================================================//
+input string  __edgeHdr            = "===== EDGE / ROBUSTEZZA =====";
+// --- SL/TP dinamico su ATR (adatta stop e target alla volatilita') ---
+input bool    UseAtrStops          = true;       // Usa ATR per SL/TP (override pips fissi)
+input int     AtrPeriod            = 14;         // Periodo ATR (su M15)
+input double  AtrSlMultiplier      = 1.2;        // SL = ATR * questo moltiplicatore
+input double  AtrSlMinPips         = 6.0;        // Clamp minimo SL (pips)
+input double  AtrSlMaxPips         = 18.0;       // Clamp massimo SL (pips)
+// --- Partial come frazione dello SL reale + breakeven ---
+input double  PartialAtSlFraction  = 0.8;        // Parziale a (frazione dello SL) di profitto
+input bool    UseBreakeven         = true;       // Sposta SL a pareggio dopo il parziale
+input double  BreakevenBufferPips  = 1.0;        // Buffer oltre l'entry al breakeven
+// --- Filtro trend H4 (opera solo in direzione del trend) ---
+input bool    UseTrendFilter       = true;       // Filtro trend con EMA
+input ENUM_TIMEFRAMES TrendTimeframe = PERIOD_H4;// Timeframe del trend
+input int     TrendEmaPeriod       = 50;         // Periodo EMA trend
+// --- Filtro volatilita' (no chop): richiede range/ATR minimo ---
+input bool    UseVolatilityFilter  = true;       // Salta sessioni a bassa volatilita'
+input ENUM_TIMEFRAMES VolTimeframe = PERIOD_D1;  // Timeframe per stima volatilita'
+input int     VolAtrPeriod         = 14;         // Periodo ATR volatilita'
+input double  MinVolRangePips      = 150.0;      // ATR minimo richiesto (pips) - dipende da PipSize
+// --- Qualita' del trade: spread non deve erodere lo SL ---
+input double  MaxSpreadToSlRatio   = 0.30;       // Spread max come frazione dello SL
 
 //==================================================================//
 //  INPUT - FILTRI OPERATIVI                                         //
@@ -281,8 +307,17 @@ bool CanEnterNow(datetime gmtNow)
    if(gmtNow < g_revengePauseUntil)
       return(false);
 
-   // Spread accettabile
+   // Spread accettabile (limite assoluto)
    if(CurrentSpreadPips() > MaxSpreadPips)
+      return(false);
+
+   // Spread non deve erodere lo SL (qualita' del trade)
+   double slPips = CurrentSlDistance() / g_pip;
+   if(slPips > 0.0 && (CurrentSpreadPips() / slPips) > MaxSpreadToSlRatio)
+      return(false);
+
+   // Filtro volatilita': niente trading in regime di chop
+   if(!VolatilityOk())
       return(false);
 
    // Filtro news
@@ -391,21 +426,68 @@ int GetEntrySignal()
 
    double maxExt = MaxBreakoutExtPips * g_pip;
 
-   // ---- LONG: breakout resistenza + conferma + RSI + volume ----
+   // Filtro trend H4: opera solo nella direzione dell'EMA (prezzo vs EMA + pendenza)
+   int trend = TrendDirection(); // 1=up, -1=down, 0=flat/non-filtrato
+
+   // ---- LONG: breakout resistenza + conferma + RSI + volume + trend ----
    bool longBreak  = (highConf > resistance && closeConf > resistance);
    bool longRsi    = (rsi > RsiLongThreshold);
    bool longNotExt = ((Ask - resistance) <= maxExt); // non inseguire breakout estesi
-   if(longBreak && longRsi && volOk && longNotExt)
+   bool longTrend  = (!UseTrendFilter || trend >= 0);
+   if(longBreak && longRsi && volOk && longNotExt && longTrend)
       return(1);
 
-   // ---- SHORT: breakout supporto + conferma + RSI + volume ----
+   // ---- SHORT: breakout supporto + conferma + RSI + volume + trend ----
    bool shortBreak  = (lowConf < support && closeConf < support);
    bool shortRsi    = (rsi < RsiShortThreshold);
    bool shortNotExt = ((support - Bid) <= maxExt);
-   if(shortBreak && shortRsi && volOk && shortNotExt)
+   bool shortTrend  = (!UseTrendFilter || trend <= 0);
+   if(shortBreak && shortRsi && volOk && shortNotExt && shortTrend)
       return(-1);
 
    return(0);
+  }
+
+//+------------------------------------------------------------------+
+//| Direzione del trend su TrendTimeframe: 1=up, -1=down, 0=flat     |
+//+------------------------------------------------------------------+
+int TrendDirection()
+  {
+   double emaNow  = iMA(Symbol(), TrendTimeframe, TrendEmaPeriod, 0, MODE_EMA, PRICE_CLOSE, 1);
+   double emaPrev = iMA(Symbol(), TrendTimeframe, TrendEmaPeriod, 0, MODE_EMA, PRICE_CLOSE, 3);
+   double price   = iClose(Symbol(), TrendTimeframe, 1);
+
+   if(price > emaNow && emaNow >= emaPrev) return(1);
+   if(price < emaNow && emaNow <= emaPrev) return(-1);
+   return(0);
+  }
+
+//+------------------------------------------------------------------+
+//| Distanza SL in prezzo: ATR (con clamp) oppure pips fissi         |
+//+------------------------------------------------------------------+
+double CurrentSlDistance()
+  {
+   if(!UseAtrStops)
+      return(StopLossPips * g_pip);
+
+   double atr = iATR(Symbol(), PERIOD_M15, AtrPeriod, 1);
+   double dist = atr * AtrSlMultiplier;
+
+   double minDist = AtrSlMinPips * g_pip;
+   double maxDist = AtrSlMaxPips * g_pip;
+   if(dist < minDist) dist = minDist;
+   if(dist > maxDist) dist = maxDist;
+   return(dist);
+  }
+
+//+------------------------------------------------------------------+
+//| Volatilita' sufficiente? (range/ATR >= soglia minima)            |
+//+------------------------------------------------------------------+
+bool VolatilityOk()
+  {
+   if(!UseVolatilityFilter) return(true);
+   double atr = iATR(Symbol(), VolTimeframe, VolAtrPeriod, 1);
+   return((atr / g_pip) >= MinVolRangePips);
   }
 
 //+------------------------------------------------------------------+
@@ -461,8 +543,8 @@ double CalcLotSize(double slPriceDistance)
 //+------------------------------------------------------------------+
 bool OpenTrade(int direction)
   {
-   double slDist = StopLossPips * g_pip;
-   double tpDist = StopLossPips * RiskRewardRatio * g_pip;
+   double slDist = CurrentSlDistance();
+   double tpDist = slDist * RiskRewardRatio;
 
    double lots = CalcLotSize(slDist);
    if(lots <= 0.0)
@@ -520,9 +602,20 @@ void ManageOpenPositions(datetime gmtNow)
 
       double profitPips = PositionProfitPips();
 
-      // Chiusura parziale 50% al primo target
-      if(UsePartialClose && !IsPartialDone(OrderTicket()) && profitPips >= PartialClosePips)
+      // Soglia parziale: frazione dello SL reale della posizione (fallback a pips fissi)
+      double partialTrigger = PartialClosePips;
+      if(OrderStopLoss() > 0.0)
+        {
+         double slPipsOrder = MathAbs(OrderOpenPrice() - OrderStopLoss()) / g_pip;
+         if(slPipsOrder > 0.0) partialTrigger = slPipsOrder * PartialAtSlFraction;
+        }
+
+      // Chiusura parziale al primo target + spostamento a breakeven
+      if(UsePartialClose && !IsPartialDone(OrderTicket()) && profitPips >= partialTrigger)
+        {
          DoPartialClose();
+         MoveToBreakeven();
+        }
 
       // Trailing stop dopo il parziale (o sempre, se parziale disabilitato)
       if(UseTrailingStop && (IsPartialDone(OrderTicket()) || !UsePartialClose))
@@ -605,6 +698,46 @@ void DoTrailingStop()
          if(!OrderModify(OrderTicket(), OrderOpenPrice(), newSL, OrderTakeProfit(), 0, clrAqua))
             Print("Trailing modify (SELL) fallito #", OrderTicket(), " err=", GetLastError());
         }
+     }
+  }
+
+//+------------------------------------------------------------------+
+//| Sposta lo SL a breakeven (+ buffer) sulla posizione residua      |
+//| Nota: la chiusura parziale crea un nuovo ticket -> selezioniamo  |
+//| la posizione aperta piu' recente dell'EA.                        |
+//+------------------------------------------------------------------+
+void MoveToBreakeven()
+  {
+   if(!UseBreakeven) return;
+
+   long   bestTicket = -1;
+   datetime bestTime = 0;
+   for(int i = OrdersTotal() - 1; i >= 0; i--)
+     {
+      if(!OrderSelect(i, SELECT_BY_POS, MODE_TRADES)) continue;
+      if(OrderSymbol() != Symbol() || OrderMagicNumber() != MagicNumber) continue;
+      if(OrderType() != OP_BUY && OrderType() != OP_SELL) continue;
+      if(OrderOpenTime() >= bestTime) { bestTime = OrderOpenTime(); bestTicket = OrderTicket(); }
+     }
+   if(bestTicket < 0) return;
+   if(!OrderSelect((int)bestTicket, SELECT_BY_TICKET)) return;
+
+   double buffer = BreakevenBufferPips * g_pip;
+   double newSL;
+
+   if(OrderType() == OP_BUY)
+     {
+      newSL = NormalizeDouble(OrderOpenPrice() + buffer, Digits);
+      if(Bid > newSL && (OrderStopLoss() == 0 || newSL > OrderStopLoss()))
+         if(!OrderModify(OrderTicket(), OrderOpenPrice(), newSL, OrderTakeProfit(), 0, clrLime))
+            Print("Breakeven (BUY) fallito #", OrderTicket(), " err=", GetLastError());
+     }
+   else if(OrderType() == OP_SELL)
+     {
+      newSL = NormalizeDouble(OrderOpenPrice() - buffer, Digits);
+      if(Ask < newSL && (OrderStopLoss() == 0 || newSL < OrderStopLoss()))
+         if(!OrderModify(OrderTicket(), OrderOpenPrice(), newSL, OrderTakeProfit(), 0, clrLime))
+            Print("Breakeven (SELL) fallito #", OrderTicket(), " err=", GetLastError());
      }
   }
 
@@ -742,12 +875,18 @@ void UpdateDashboard(datetime gmtNow)
    else if(g_dailyHardStop)         state = "STOP DAILY LOSS";
    else if(gmtNow < g_revengePauseUntil) state = "PAUSA REVENGE";
    else if(!IsTradingSession(gmtNow))    state = "FUORI SESSIONE";
+   else if(!VolatilityOk())              state = "BASSA VOLATILITA'";
+
+   int trend = TrendDirection();
+   string trendStr = (trend > 0 ? "UP" : (trend < 0 ? "DOWN" : "FLAT"));
 
    string msg = StringConcatenate(
       "=== Neuromelo XAU Scalper ===\n",
       "Stato: ", state, "\n",
       "GMT: ", TimeToStr(gmtNow, TIME_DATE|TIME_MINUTES), "\n",
+      "Trend ", EnumToString(TrendTimeframe), ": ", trendStr, "\n",
       "Spread: ", DoubleToStr(CurrentSpreadPips(), 1), " pips\n",
+      "SL dinamico: ", DoubleToStr(CurrentSlDistance() / g_pip, 1), " pips\n",
       "Daily P&L: ", DoubleToStr(dailyPnL, 2), " / -", DoubleToStr(MaxDailyLossUSD, 0), "\n",
       "Overall P&L: ", DoubleToStr(overallPnL, 2), " / -", DoubleToStr(MaxOverallLossUSD, 0), "\n",
       "Trade oggi: ", g_tradesToday, " / ", MaxTradesPerDay, "\n",

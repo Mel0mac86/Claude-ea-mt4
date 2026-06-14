@@ -1,0 +1,104 @@
+; ============================================================
+; Neuromelo - XAU/USD Intraday Scalper - Preset di partenza
+; Caricare da: Strategy Tester / Proprieta' EA -> tab Inputs -> Load
+; NOTA: verificare PipSize e BrokerGMTOffset per il proprio broker!
+; I parametri marcati con ",F=1" sono abilitati all'ottimizzazione.
+; ============================================================
+; --- Rischio ---
+InitialBalance=10000
+MaxDailyLossUSD=500
+MaxOverallLossUSD=1000
+RiskPercentPerTrade=0.75
+RiskPercentPerTrade,F=1
+RiskPercentPerTrade,1=0.5
+RiskPercentPerTrade,2=0.25
+RiskPercentPerTrade,3=1.0
+MinRiskUSD=50
+MaxRiskUSD=100
+MaxLotPerTrade=1.5
+HalfDailyLossUSD=250
+; --- Sessioni (GMT) ---
+BrokerGMTOffset=0
+LondonStartHour=8
+LondonEndHour=12
+OverlapStartHour=13
+OverlapEndHour=16
+ObserveFirst15Min=true
+CloseAllHourGMT=16
+CloseAllMinuteGMT=0
+; --- Ingresso ---
+RangeLookbackBars=12
+RangeLookbackBars,F=1
+RangeLookbackBars,1=8
+RangeLookbackBars,2=2
+RangeLookbackBars,3=20
+RsiPeriod=14
+RsiTimeframe=240
+RsiLongThreshold=50
+RsiLongThreshold,F=1
+RsiLongThreshold,1=50
+RsiLongThreshold,2=2
+RsiLongThreshold,3=58
+RsiShortThreshold=50
+RsiShortThreshold,F=1
+RsiShortThreshold,1=42
+RsiShortThreshold,2=2
+RsiShortThreshold,3=50
+VolumeMAPeriod=20
+VolumeFactor=1.0
+RequireVolumeFilter=true
+MaxBreakoutExtPips=20
+; --- Stop / Target ---
+PipSize=0.10
+StopLossPips=10
+RiskRewardRatio=1.5
+RiskRewardRatio,F=1
+RiskRewardRatio,1=1.2
+RiskRewardRatio,2=0.3
+RiskRewardRatio,3=2.4
+UsePartialClose=true
+PartialClosePips=8
+PartialClosePercent=50
+UseTrailingStop=true
+TrailingStopPips=5
+; --- Edge / robustezza ---
+UseAtrStops=true
+AtrPeriod=14
+AtrSlMultiplier=1.2
+AtrSlMultiplier,F=1
+AtrSlMultiplier,1=0.8
+AtrSlMultiplier,2=0.2
+AtrSlMultiplier,3=2.0
+AtrSlMinPips=6
+AtrSlMaxPips=18
+PartialAtSlFraction=0.8
+UseBreakeven=true
+BreakevenBufferPips=1
+UseTrendFilter=true
+TrendTimeframe=240
+TrendEmaPeriod=50
+TrendEmaPeriod,F=1
+TrendEmaPeriod,1=20
+TrendEmaPeriod,2=10
+TrendEmaPeriod,3=100
+UseVolatilityFilter=true
+VolTimeframe=1440
+VolAtrPeriod=14
+MinVolRangePips=150
+MinVolRangePips,F=1
+MinVolRangePips,1=100
+MinVolRangePips,2=50
+MinVolRangePips,3=300
+MaxSpreadToSlRatio=0.30
+; --- Filtri operativi ---
+MaxSpreadPips=25
+MaxTradesPerDay=10
+RevengePauseMinutes=30
+ConsecutiveLossLimit=2
+NewsTimesGMT=
+NewsBufferMinutes=30
+; --- Generali ---
+MagicNumber=20260614
+SlippagePoints=30
+TradeComment=NM_XAU
+OneTradePerBarSignal=true
